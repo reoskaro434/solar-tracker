@@ -144,7 +144,7 @@ void measureAll()
 {
   TCA9548A(0);
   delay(500);
-  String panel = "Panel: "+String(measureLoadVoltage())+"V";
+  String panel = "P:"+String(measureLoadVoltage())+"V "+String(measureCurrent())+"mA";
 
   TCA9548A(1);
   delay(500);
@@ -318,12 +318,12 @@ void trackVertical()
       val *= 100;
       progres = val;
 
-      writeOnLCD("Finding energy", String(progres) + "% V:" + String(servoVoltageTab[i]));
+      writeOnLCD("area scan: ", String(progres) + "% V:" + String(servoVoltageTab[i]));
       delay(1000);
 
 
     }
-    writeOnLCD("Best state:" + String(bestServoState), "V:" + String(maxVoltage2));
+    writeOnLCD("best state:" + String(bestServoState), "V:" + String(maxVoltage2));
     setServoState(bestServoState);
     delay(2000);
 
@@ -404,13 +404,13 @@ bool findSun()
     val *= 100;
     progres = val;
 
-    writeOnLCD("Finding energy", String(progres) + "% V:" + String(voltageTab[i]));
+    writeOnLCD("area scan: ", String(progres) + "% V:" + String(voltageTab[i]));
     delay(300);
   }
   if (maxVoltage > 1)
   {
     //Going to best place.
-    writeOnLCD("Best state:" + String(bestMotorState), "V:" + String(maxVoltage));
+    writeOnLCD("best state:" + String(bestMotorState), "V:" + String(maxVoltage));
     delay(2000);
     setMotorState(bestMotorState);
     writeOnLCD("","");
@@ -434,12 +434,12 @@ bool findSun()
       val *= 100;
       progres = val;
 
-      writeOnLCD("Finding energy", String(progres) + "% V:" + String(servoVoltageTab[i]));
+      writeOnLCD("area scan: ", String(progres) + "% V:" + String(servoVoltageTab[i]));
       delay(1000);
 
 
     }
-    writeOnLCD("Best state:" + String(bestServoState), "V:" + String(maxVoltage2));
+    writeOnLCD("best state:" + String(bestServoState), "V:" + String(maxVoltage2));
 
 
 
@@ -522,7 +522,7 @@ void controlCharging()//Charging is ON
   {
     chargingOFF();
     alert(4);
-    writeOnLCD("Battery is full", "charging canceled");
+    writeOnLCD("battery is full", "charging canceled");
     succedScan = false;
     while(1)
     {
@@ -549,6 +549,7 @@ void controlCharging()//Charging is ON
       if (voltage < 16)
         succedScan = findSun();
     }
+     chargingON();
   }
 
  }
