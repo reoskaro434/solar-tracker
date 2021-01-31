@@ -42,8 +42,9 @@ float maxBatteryVoltage = 13.8;//V
 float minBatteryVoltage = 12.1;//V
 int waitingTime = 60;//One minute to next scanning.
 int blinkingDelay = 200;//Time in ms before alert turns on or off backlight.
-int motorSpeed = 12; //Lowest = faster
-int minimalPower = 200; //Minimal power which panel needs to generate. 
+int motorSpeed = 13; //Lowest = faster
+int minimalPower = 10; //Minimal power which panel needs to generate.
+int measureTime = 50;
 Servo servo;
 //#################################################################
 //#####################    LCD    #################################
@@ -56,12 +57,12 @@ void initLCD()
 void turnBackgroundLight(bool turnOn)
 {
   if (turnOn)
-  { 
+  {
     digitalWrite(LCD_A, HIGH);
     lcd.display();
   }
   else
-  { 
+  {
     digitalWrite(LCD_A, LOW);
     lcd.noDisplay();
   }
@@ -77,7 +78,7 @@ void writeOnLCD(String arg1, String arg2)
 }
 void alert(int blinkNumber)
 {
-  writeOnLCD("","");
+  writeOnLCD("", "");
   turnBackgroundLight(false);
   for ( int i = 0; i < blinkNumber; i++)
   {
@@ -146,23 +147,22 @@ float measureLoadVoltage()
 float measurePower()
 {
   float resoult = 0;
-  for(int i =0;i<5;i++)
+  for (int i = 0; i < 5; i++)
   {
-   resoult+=measureCurrent() * measureLoadVoltage();
-   delay(100);
+    resoult += measureCurrent() * measureLoadVoltage();
+    delay(measureTime);
   }
-  
-  
-  return  resoult/5;
+
+
+  return  resoult / 5;
 }
 void measureAll()
 {
   TCA9548A(0);
-  delay(500);
-  //String panel = "P:" + String(measureLoadVoltage()) + "V " + String(measureCurrent()) + "mA";
-  String panel = "P " + String( measurePower())+"mW";
+  delay(100);
+  String panel = "P:" + String(measureLoadVoltage()) + "V " + String(measurePower()) + "mW";
   TCA9548A(1);
-  delay(500);
+  delay(100);
   float currentVoltage = measureLoadVoltage();
   float deltaMaxMin = maxBatteryVoltage - minBatteryVoltage;
   float currentDelta = currentVoltage - minBatteryVoltage;
@@ -195,11 +195,11 @@ void initButton()
 {
   pinMode(BUTTON_PIN, INPUT);
 }
-//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! change to interrupts
 bool buttonPressed()
 {
   if (digitalRead(BUTTON_PIN) == LOW)
   {
+    alert(2);
     while (digitalRead(BUTTON_PIN) == LOW)
     {}
     return true;
@@ -257,11 +257,11 @@ void initMotor()
 }
 void enableMotor()
 {
- digitalWrite(EN, LOW);
+  digitalWrite(EN, LOW);
 }
 void disableMotor()
 {
- digitalWrite(EN, HIGH);
+  digitalWrite(EN, HIGH);
 }
 void moveRight(int stepsCount)
 {
@@ -312,13 +312,13 @@ void setMotorState(int state)
 //#####################   TRACKER   ###############################
 //#################################################################
 void trackVertical()
-{ 
+{
   float servoPowerArray[7];
   float maxPower = 0;
   int bestServoState = 0;
-  
+
   setServoState(0);
- 
+
   for (int i = 0; i < 7; i++)
   {
     setServoState(i);
@@ -380,7 +380,7 @@ void trackSunLeft(float lastPower)
       setMotorState(motorState + 1);
     else
       setMotorState(0);
-      
+
     trackVertical();
   }
 }
@@ -388,7 +388,7 @@ bool findSun()
 {
   setServoState(1);
   enableMotor();
- 
+
   float powerArray[25];
   int bestMotorState = 0;
   int progres = 0;
@@ -399,7 +399,7 @@ bool findSun()
 
   for (int i = 0; i < 25; i++)
   {
-    setMotorState(i); 
+    setMotorState(i);
     powerArray[i] = measurePower();
     if (maxPower < powerArray[i])
     {
@@ -414,7 +414,7 @@ bool findSun()
     writeOnLCD("area scan: ", String(progres) + "% mW:" + String(powerArray[i]));
     delay(300);
   }
-  if (maxPower > minimalPower)
+  if (maxPower > minimalPower * 0.1)
   {
     //Going to best place.
     writeOnLCD("best state:" + String(bestMotorState), "mW:" + String(maxPower));
@@ -423,7 +423,7 @@ bool findSun()
     writeOnLCD("", "");
     turnBackgroundLight(false);
 
-  trackVertical();
+    trackVertical();
   }
   if (measurePower() < minimalPower)// Restarting tracker
   {
@@ -451,10 +451,11 @@ void trackSun()
   enableMotor();
   //Scanning.
   TCA9548A(0);
+  
   //Checking current voltage.
-  setServoState(0);
   middlePower = measurePower();
   middlePower = roundNumber(middlePower);
+ 
   //Checking right side.
   if (motorState < 25)
     setMotorState(motorState + 1);
@@ -463,7 +464,7 @@ void trackSun()
 
   rightPower = measurePower();
   rightPower = roundNumber(rightPower);
-  
+
   //Checking left side.
 
   if (motorState > 1)
@@ -474,6 +475,12 @@ void trackSun()
   leftPower = measurePower();
   leftPower = roundNumber(leftPower);
 
+  //Middle state.
+  if (motorState < 25)
+    setMotorState(motorState + 1);
+  else
+    setMotorState(0);
+    
   if (leftPower > rightPower)
   {
     if (middlePower < leftPower)
@@ -490,7 +497,7 @@ void trackSun()
     {
       trackSunRight(rightPower);
 
-     disableMotor();
+      disableMotor();
       return;
     }
   }
@@ -521,23 +528,21 @@ void controlCharging()//Charging is ON
 
   if (succedScan)
   {
-      TCA9548A(0);
+    TCA9548A(0);
+    if (measurePower() < minimalPower)
+    {
+      trackSun();
+
       if (measurePower() < minimalPower)
-      {
-        trackSun();
-        
-        if (measurePower() < minimalPower)
-          succedScan = findSun();
-      }
+        succedScan = findSun();
+      writeOnLCD("", "");
+      turnBackgroundLight(false);
+    }
 
   }
   if (buttonPressed() and succedScan)
   {
-    alert(2);
-    measureAll();
-    delay(10000);
-    writeOnLCD("", "");
-    turnBackgroundLight(false);
+    showData();
   }
   if (!succedScan and waitingTime > 0)
   {
@@ -553,6 +558,13 @@ void controlCharging()//Charging is ON
     waitingTime = 60;
     succedScan = findSun();
   }
+}
+void showData()
+{
+  measureAll();
+  delay(6000);
+  writeOnLCD("", "");
+  turnBackgroundLight(false);
 }
 //*****************************************************************
 //#################################################################
@@ -572,6 +584,9 @@ void setup() {
   }
   chargingON();
   succedScan = findSun();
+  writeOnLCD("", "");
+  turnBackgroundLight(false);
+
 }
 //*****************************************************************
 //#################################################################
