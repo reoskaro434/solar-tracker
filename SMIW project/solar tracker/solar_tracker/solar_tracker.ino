@@ -37,12 +37,13 @@ LiquidCrystal lcd(LCD_RS, LCD_E, D4, D5, D6, D7);
 Adafruit_INA219 ina219;
 int servoState = 0; // 1,2,3,4,5.. states
 int motorState = 0; // 0...400 states 25 states if we moving by 16 steps.
-int roundedCurrentVoltage = 0;
 bool succedScan = false;
 float maxBatteryVoltage = 13.8;//V
-float minBatteryVoltage = 12.55;//V
-float minPanelCurrent = 10; //mA
+float minBatteryVoltage = 12.1;//V
 int waitingTime = 60;//One minute to next scanning.
+int blinkingDelay = 200;//Time in ms before alert turns on or off backlight.
+int motorSpeed = 12; //Lowest = faster
+int minimalPower = 200; //Minimal power which panel needs to generate. 
 Servo servo;
 //#################################################################
 //#####################    LCD    #################################
@@ -55,11 +56,13 @@ void initLCD()
 void turnBackgroundLight(bool turnOn)
 {
   if (turnOn)
-  { digitalWrite(LCD_A, HIGH);
+  { 
+    digitalWrite(LCD_A, HIGH);
     lcd.display();
   }
   else
-  { digitalWrite(LCD_A, LOW);
+  { 
+    digitalWrite(LCD_A, LOW);
     lcd.noDisplay();
   }
 }
@@ -74,14 +77,14 @@ void writeOnLCD(String arg1, String arg2)
 }
 void alert(int blinkNumber)
 {
-  writeOnLCD("", "");
+  writeOnLCD("","");
   turnBackgroundLight(false);
   for ( int i = 0; i < blinkNumber; i++)
   {
     turnBackgroundLight(true);
-    delay(400);
+    delay(blinkingDelay);
     turnBackgroundLight(false);
-    delay(400);
+    delay(blinkingDelay);
   }
 }
 
@@ -119,7 +122,7 @@ void initINA219()
       writeOnLCD("ERROR, CAN'T", "INIT INA219");
       while (1) {
         delay(999999);
-      } // Can't use tracker if one of the ina219 not working.
+      } // Can't use tracker if one of the ina219 is not working.
     }
   }
 }
@@ -140,21 +143,33 @@ float measureLoadVoltage()
 
   return loadvoltage;
 }
+float measurePower()
+{
+  float resoult = 0;
+  for(int i =0;i<5;i++)
+  {
+   resoult+=measureCurrent() * measureLoadVoltage();
+   delay(100);
+  }
+  
+  
+  return  resoult/5;
+}
 void measureAll()
 {
   TCA9548A(0);
   delay(500);
-  String panel = "P:"+String(measureLoadVoltage())+"V "+String(measureCurrent())+"mA";
-
+  //String panel = "P:" + String(measureLoadVoltage()) + "V " + String(measureCurrent()) + "mA";
+  String panel = "P " + String( measurePower())+"mW";
   TCA9548A(1);
   delay(500);
   float currentVoltage = measureLoadVoltage();
   float deltaMaxMin = maxBatteryVoltage - minBatteryVoltage;
   float currentDelta = currentVoltage - minBatteryVoltage;
-  float resoult =  currentDelta/deltaMaxMin;
-  resoult *=100;
+  float resoult =  currentDelta / deltaMaxMin;
+  resoult *= 100;
   int finalResoult = (int)resoult;
-  String battery = "Battery: " + String(finalResoult)+"%";
+  String battery = "Battery: " + String(finalResoult) + "%";
   writeOnLCD(battery, panel);
 }
 //#################################################################
@@ -180,14 +195,13 @@ void initButton()
 {
   pinMode(BUTTON_PIN, INPUT);
 }
-
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! change to interrupts
 bool buttonPressed()
 {
   if (digitalRead(BUTTON_PIN) == LOW)
   {
     while (digitalRead(BUTTON_PIN) == LOW)
     {}
-
     return true;
   }
   else
@@ -202,11 +216,11 @@ void setServoState(int state)
   if (servoState == state)
     return;
 
- // Servo servo;
-  digitalWrite(EN, HIGH);
-  delay(400);
+  // Servo servo;
+  disableMotor();
+  delay(100);
   servo.attach(SERVO_PIN);
-  delay(400);
+  delay(100);
   if (servoState > state)
   {
     servo.writeMicroseconds(500);
@@ -228,8 +242,8 @@ void setServoState(int state)
   servo.writeMicroseconds(1500);//Default stop;
   delay(1000);
   servo.detach();
-  delay(400);
-  digitalWrite(EN, LOW);
+  delay(100);
+  enableMotor();
 }
 //#################################################################
 //####################     MOTOR     ##############################
@@ -239,7 +253,15 @@ void initMotor()
   pinMode(EN, OUTPUT);
   pinMode(DIR, OUTPUT);
   pinMode(STEP, OUTPUT);
-  digitalWrite(EN, HIGH); // Prevents the a4988 for overheating.
+  disableMotor(); // Prevents the a4988 for overheating.
+}
+void enableMotor()
+{
+ digitalWrite(EN, LOW);
+}
+void disableMotor()
+{
+ digitalWrite(EN, HIGH);
 }
 void moveRight(int stepsCount)
 {
@@ -247,9 +269,9 @@ void moveRight(int stepsCount)
 
   for (int i = 0; i < stepsCount; i++)
   {
-    delay(20);
+    delay(motorSpeed);
     digitalWrite(STEP, LOW);
-    delay(20);
+    delay(motorSpeed);
     digitalWrite(STEP, HIGH);
   }
 }
@@ -259,9 +281,9 @@ void moveLeft(int stepsCount)
 
   for (int i = 0; i < stepsCount; i++)
   {
-    delay(20);
+    delay(motorSpeed);
     digitalWrite(STEP, LOW);
-    delay(20);
+    delay(motorSpeed);
     digitalWrite(STEP, HIGH);
   }
 }
@@ -269,9 +291,6 @@ void setMotorState(int state)
 {
   if (motorState == state)
     return;
-
-
-
   if (motorState > state)
   {
     while (motorState != state)
@@ -288,115 +307,103 @@ void setMotorState(int state)
       motorState++;
     }
   }
-
-
 }
 //#################################################################
 //#####################   TRACKER   ###############################
 //#################################################################
 void trackVertical()
-{   
- 
-    setServoState(0);
-    float servoVoltageTab[7];
-    float maxVoltage2 = 0;
-    int bestServoState = 0;
-    int progres =0;
-    for (int i = 0; i < 7; i++)
-    {
-      setServoState(i);
-      servoVoltageTab[i] = measureLoadVoltage();
-      if (maxVoltage2 < servoVoltageTab[i])
-      {
-        maxVoltage2 = servoVoltageTab[i];
-        bestServoState = i;
-      }
-      else
-        break;
-      float val = i + 1;
-      val /= 7;
-      val *= 100;
-      progres = val;
-
-      writeOnLCD("area scan: ", String(progres) + "% V:" + String(servoVoltageTab[i]));
-      delay(1000);
-
-
-    }
-    writeOnLCD("best state:" + String(bestServoState), "V:" + String(maxVoltage2));
-    setServoState(bestServoState);
-    delay(2000);
-
-    writeOnLCD("","");
-    turnBackgroundLight(false);   
-}
-void trackSunRight(float lastVoltage)
 { 
-  float servoVoltageTab[7];
-  float currentVoltage;
+  float servoPowerArray[7];
+  float maxPower = 0;
+  int bestServoState = 0;
+  
+  setServoState(0);
+ 
+  for (int i = 0; i < 7; i++)
+  {
+    setServoState(i);
+    servoPowerArray[i] = measurePower();
+    if (maxPower < servoPowerArray[i])
+    {
+      maxPower = servoPowerArray[i];
+      bestServoState = i;
+    }
+    else
+      break;
+  }
+  writeOnLCD("best state:" + String(bestServoState), "mW:" + String(maxPower));
+  setServoState(bestServoState);
+  delay(2000);
+
+  writeOnLCD("", "");
+  turnBackgroundLight(false);
+}
+void trackSunRight(float lastPower)
+{
+  float currentPower;
   if (motorState + 1 < 25)
     setMotorState(motorState + 1);
   else
     setMotorState(0);
 
-  currentVoltage =  measureLoadVoltage();
-  currentVoltage = roundNumber(currentVoltage);
+  currentPower =  measurePower();
+  currentPower = roundNumber(currentPower);
 
-  if (lastVoltage < currentVoltage)
-    trackSunRight(currentVoltage);
+  if (lastPower < currentPower)
+    trackSunRight(currentPower);
   else
   {
     if (motorState > 0)
       setMotorState(motorState - 1);
     else
       setMotorState(25);
-      
-  trackVertical();
+
+    trackVertical();
   }
 }
-void trackSunLeft(float lastVoltage)
+void trackSunLeft(float lastPower)
 {
-  float currentVoltage;
+  float currentPower;
   if (motorState - 1 > 0)
     setMotorState(motorState - 1);
   else
     setMotorState(25);
 
-  currentVoltage =  measureLoadVoltage();
-  currentVoltage = roundNumber(currentVoltage);
+  currentPower =  measurePower();
+  currentPower = roundNumber(currentPower);
 
-  if (lastVoltage < currentVoltage)
-    trackSunLeft(currentVoltage);
+  if (lastPower < currentPower)
+    trackSunLeft(currentPower);
   else
   {
     if (motorState < 25)
       setMotorState(motorState + 1);
     else
       setMotorState(0);
-  trackVertical();
+      
+    trackVertical();
   }
 }
 bool findSun()
 {
-  digitalWrite(EN, LOW);
-  float voltageTab[25];
-  float servoVoltageTab[7];
+  setServoState(1);
+  enableMotor();
+ 
+  float powerArray[25];
   int bestMotorState = 0;
-  int bestServoState = 0;
   int progres = 0;
-  float maxVoltage = 0;
+  float maxPower = 0;
 
   //Scanning.
-  chargingOFF();
   TCA9548A(0);
 
   for (int i = 0; i < 25; i++)
   {
-    setMotorState(i);
-    voltageTab[i] = measureLoadVoltage();
-    if (maxVoltage < voltageTab[i])
+    setMotorState(i); 
+    powerArray[i] = measurePower();
+    if (maxPower < powerArray[i])
     {
-      maxVoltage = voltageTab[i];
+      maxPower = powerArray[i];
       bestMotorState = i;
     }
     float val = i + 1;
@@ -404,52 +411,21 @@ bool findSun()
     val *= 100;
     progres = val;
 
-    writeOnLCD("area scan: ", String(progres) + "% V:" + String(voltageTab[i]));
+    writeOnLCD("area scan: ", String(progres) + "% mW:" + String(powerArray[i]));
     delay(300);
   }
-  if (maxVoltage > 1)
+  if (maxPower > minimalPower)
   {
     //Going to best place.
-    writeOnLCD("best state:" + String(bestMotorState), "V:" + String(maxVoltage));
+    writeOnLCD("best state:" + String(bestMotorState), "mW:" + String(maxPower));
     delay(2000);
     setMotorState(bestMotorState);
-    writeOnLCD("","");
-    turnBackgroundLight(false);   
-    
-    
-    float maxVoltage2 = 0;
-    for (int i = 0; i < 7; i++)
-    {
-      setServoState(i);
-      servoVoltageTab[i] = measureLoadVoltage();
-      if (maxVoltage2 < servoVoltageTab[i])
-      {
-        maxVoltage2 = servoVoltageTab[i];
-        bestServoState = i;
-      }
-      else
-        break;
-      float val = i + 1;
-      val /= 7;
-      val *= 100;
-      progres = val;
+    writeOnLCD("", "");
+    turnBackgroundLight(false);
 
-      writeOnLCD("area scan: ", String(progres) + "% V:" + String(servoVoltageTab[i]));
-      delay(1000);
-
-
-    }
-    writeOnLCD("best state:" + String(bestServoState), "V:" + String(maxVoltage2));
-
-
-
-    setServoState(bestServoState);
-    delay(2000);
-   
-    writeOnLCD("","");
-    turnBackgroundLight(false);   
+  trackVertical();
   }
-  if (measureLoadVoltage() < 16)
+  if (measurePower() < minimalPower)// Restarting tracker
   {
     delay(4000);
 
@@ -459,61 +435,67 @@ bool findSun()
 
     setMotorState(0);
 
-    chargingOFF();
-    digitalWrite(EN, HIGH);
+    disableMotor();
     return false;
   }
-  chargingON();
-  digitalWrite(EN, HIGH);
+  disableMotor();
   return true;
 }
 
 void trackSun()
 {
-  float leftVoltage = 0;
-  float rightVoltage = 0;
-  float middleVoltage = 0;
-
-  digitalWrite(EN, LOW);
+  float leftPower = 0;
+  float rightPower = 0;
+  float middlePower = 0;
+  setServoState(1);
+  enableMotor();
   //Scanning.
-  chargingOFF();
   TCA9548A(0);
   //Checking current voltage.
   setServoState(0);
-  middleVoltage = measureLoadVoltage();
-  middleVoltage = roundNumber(middleVoltage);
+  middlePower = measurePower();
+  middlePower = roundNumber(middlePower);
   //Checking right side.
   if (motorState < 25)
     setMotorState(motorState + 1);
   else
     setMotorState(0);
 
-  rightVoltage = measureLoadVoltage();
-  rightVoltage = roundNumber(rightVoltage);
-  if (middleVoltage < rightVoltage)
-  {
-    trackSunRight(rightVoltage);
-
-    digitalWrite(EN, HIGH);
-    return;
-  }
-
-  //If voltage is not enough high checking left side.
+  rightPower = measurePower();
+  rightPower = roundNumber(rightPower);
+  
+  //Checking left side.
 
   if (motorState > 1)
     setMotorState(motorState - 2);
   else
     setMotorState(25);
 
-  leftVoltage = measureLoadVoltage();
-  leftVoltage = roundNumber(leftVoltage);
-  if (middleVoltage < leftVoltage)
-  {
-    trackSunLeft(leftVoltage);
+  leftPower = measurePower();
+  leftPower = roundNumber(leftPower);
 
-    digitalWrite(EN, HIGH);
-    return;
+  if (leftPower > rightPower)
+  {
+    if (middlePower < leftPower)
+    {
+      trackSunLeft(leftPower);
+
+      disableMotor();
+      return;
+    }
   }
+  else //right voltage is higher than left
+  {
+    if (middlePower < rightPower)
+    {
+      trackSunRight(rightPower);
+
+     disableMotor();
+      return;
+    }
+  }
+
+
 }
 void controlCharging()//Charging is ON
 {
@@ -524,56 +506,52 @@ void controlCharging()//Charging is ON
     alert(4);
     writeOnLCD("battery is full", "charging canceled");
     succedScan = false;
-    while(1)
+    while (1)
     {
-      if(measureLoadVoltage()<13.4)
+      if (measureLoadVoltage() < 13.4)
       {
-      writeOnLCD("","");
-      turnBackgroundLight(false);   
-      break;
+        writeOnLCD("", "");
+        turnBackgroundLight(false);
+        break;
       }
     }
   }
- 
-  if(succedScan)
- { 
-  TCA9548A(0);//Panel
-  if (measureCurrent() < minPanelCurrent)
-  {
-    chargingOFF();
-    TCA9548A(0);
-    if(measureLoadVoltage()<16)
-    {
-      trackSun();
-      int voltage = (int)measureLoadVoltage();
-      if (voltage < 16)
-        succedScan = findSun();
-    }
-     chargingON();
-  }
+  else
+    chargingON();
 
- }
+  if (succedScan)
+  {
+      TCA9548A(0);
+      if (measurePower() < minimalPower)
+      {
+        trackSun();
+        
+        if (measurePower() < minimalPower)
+          succedScan = findSun();
+      }
+
+  }
   if (buttonPressed() and succedScan)
   {
     alert(2);
     measureAll();
     delay(10000);
-    writeOnLCD("","");
-    turnBackgroundLight(false);   
+    writeOnLCD("", "");
+    turnBackgroundLight(false);
   }
-  if(!succedScan and waitingTime > 0)
+  if (!succedScan and waitingTime > 0)
   {
-    writeOnLCD("waiting for","restart: "+String(waitingTime));
+    writeOnLCD("waiting for", "restart: " + String(waitingTime));
     delay(1000);
     waitingTime--;
   }
-  
-  if(!succedScan and waitingTime <=0)
-    {
-      writeOnLCD("","");
-      turnBackgroundLight(false);   
-      waitingTime = 60;
-      succedScan = findSun();
+
+  if (!succedScan and waitingTime <= 0)
+  {
+    writeOnLCD("", "");
+    turnBackgroundLight(false);
+    waitingTime = 60;
+    succedScan = findSun();
   }
 }
 //*****************************************************************
@@ -592,6 +570,7 @@ void setup() {
     if (buttonPressed())
       break;
   }
+  chargingON();
   succedScan = findSun();
 }
 //*****************************************************************
