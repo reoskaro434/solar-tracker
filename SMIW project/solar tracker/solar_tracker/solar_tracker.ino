@@ -40,11 +40,11 @@ int motorState = 0; // 0...400 states 25 states if we moving by 16 steps.
 bool succedScan = false;
 float maxBatteryVoltage = 13.8;//V
 float minBatteryVoltage = 12.1;//V
-int waitingTime = 60;//One minute to next scanning.
-int blinkingDelay = 200;//Time in ms before alert turns on or off backlight.
+int waitingTime = 20;//One minute to next scanning.
+int blinkingDelay = 250;//Time in ms before alert turns on or off backlight.
 int motorSpeed = 13; //Lowest = faster
-int minimalPower = 10; //Minimal power which panel needs to generate.
-int measureTime = 50;
+int minimalPower = 200; //Minimal power which panel needs to generate.
+int measureTime = 100;
 Servo servo;
 //#################################################################
 //#####################    LCD    #################################
@@ -160,7 +160,7 @@ void measureAll()
 {
   TCA9548A(0);
   delay(100);
-  String panel = "P:" + String(measureLoadVoltage()) + "V " + String(measurePower()) + "mW";
+  String panel = "P:" + String(measureLoadVoltage()) + "V " + String(measureCurrent()) + "mA";
   TCA9548A(1);
   delay(100);
   float currentVoltage = measureLoadVoltage();
@@ -347,7 +347,7 @@ void trackSunRight(float lastPower)
     setMotorState(0);
 
   currentPower =  measurePower();
-  currentPower = roundNumber(currentPower);
+ // currentPower = roundNumber(currentPower);
 
   if (lastPower < currentPower)
     trackSunRight(currentPower);
@@ -370,7 +370,7 @@ void trackSunLeft(float lastPower)
     setMotorState(25);
 
   currentPower =  measurePower();
-  currentPower = roundNumber(currentPower);
+ // currentPower = roundNumber(currentPower);
 
   if (lastPower < currentPower)
     trackSunLeft(currentPower);
@@ -555,14 +555,14 @@ void controlCharging()//Charging is ON
   {
     writeOnLCD("", "");
     turnBackgroundLight(false);
-    waitingTime = 60;
+    waitingTime = 20;
     succedScan = findSun();
   }
 }
 void showData()
 {
   measureAll();
-  delay(6000);
+  delay(8000);
   writeOnLCD("", "");
   turnBackgroundLight(false);
 }
