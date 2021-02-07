@@ -33,27 +33,30 @@
 //#################################################################
 //#####################  GLOBAL  ##################################
 //#################################################################
-LiquidCrystal lcd(LCD_RS, LCD_E, D4, D5, D6, D7);
-Adafruit_INA219 ina219;
-int servoState = 0; // 1,2,3,4,5.. states
-int motorState = 0; // 0...400 states 25 states if we moving by 16 steps.
-bool succedScan = false;
-float maxBatteryVoltage = 13.8;//V
-float minBatteryVoltage = 12.1;//V
-int waitingTime = 20;//One minute to next scanning.
-int blinkingDelay = 250;//Time in ms before alert turns on or off backlight.
-int motorSpeed = 13; //Lowest = faster
-int minimalPower = 200; //Minimal power which panel needs to generate.
-int measureTime = 100;
-Servo servo;
+LiquidCrystal lcd(LCD_RS, LCD_E, D4, D5, D6, D7); // Obiekt klasy odpowiedzialny za operacje na wyświetlaczu.
+Adafruit_INA219 ina219; // Obiekt klasy odpowiedzialny za sterowanie miernikiem prądu/napięcia.
+int servoState = 0; // Przechowuje aktualną pozycję serwa, maksymalnie 7
+int motorState = 0; // Przechowuje aktualną pozycje silnika krokowego, maksymalnie 25
+bool succedScan = false; // Zmienna określająca czy ostatni skan obszaru okazał się sukcesem.
+float maxBatteryVoltage = 13.8;// Maksymalne napięcie jakie może osiągnąć akumulator.
+float minBatteryVoltage = 12.3;// Minimalne napięcie jakie może mieć akumulator.
+int waitingTime = 20;// Czas bezczynności jakie urządzenie musi odczekać po nieudanym skanie otoczenia.
+int blinkingDelay = 250;// Czas po jakim wyświetlacz zapala się lub gaśnie gdy urządzenie przekazuje użytkownikowi informacje.
+int motorSpeed = 13; // Czas mówiący ile milisekund musi upłynąć by sygnał STEP w sterowniku silnika zmienił się ze
+                     // stanu wysokiego na niski lub odwrotnie.
+int minimalPower = 200; // Minimalna moc jaką panel musi uzyskać by skan został uznany jako sukces.
+int measureTime = 100; // Odstęp w milisekundach między seryjnymi pomiarami prądu.
+Servo servo; // Obiekt klasy odpowiedzialny za sterowanie serwomechanizmem.
 //#################################################################
 //#####################    LCD    #################################
 //#################################################################
+//Inicjalizuje wyświetlacz.
 void initLCD()
 {
   pinMode(LCD_A, OUTPUT);
   lcd.begin(16, 2);
 }
+//Zależnie od argumentu włącza lub wyłącza podświetlenie.
 void turnBackgroundLight(bool turnOn)
 {
   if (turnOn)
@@ -67,6 +70,7 @@ void turnBackgroundLight(bool turnOn)
     lcd.noDisplay();
   }
 }
+//Wyświetla informajce znajdujące się w arg1 i arg2 na wyświetlaczu.
 void writeOnLCD(String arg1, String arg2)
 {
   lcd.clear();
@@ -76,6 +80,7 @@ void writeOnLCD(String arg1, String arg2)
   lcd.print(arg2);
   turnBackgroundLight(true);
 }
+//Włącza i wyłącza oświetlenie kilkukrotnie, zależnie od argumentu blinkNumber.
 void alert(int blinkNumber)
 {
   writeOnLCD("", "");
@@ -92,6 +97,8 @@ void alert(int blinkNumber)
 //#################################################################
 //#####################  INA_MANAGER  #############################
 //#################################################################
+//Zaokrągla liczbę znajdującą się w agrumencie number do dwóch miejsc
+//po przecinku, i zwraca ją.
 float roundNumber(float number)
 {
   number *= 100;
@@ -101,6 +108,7 @@ float roundNumber(float number)
   var2 /= 10;
   return var2;
 }
+//Inicjalizuje oba mierniki INA219.
 void initINA219s()
 {
   Wire.begin();
@@ -109,12 +117,17 @@ void initINA219s()
   TCA9548A(1);//CURRENT USED BY TRACKER
   initINA219();
 }
+//Umożliwia wybranie odpowiedniego miernika zależnie od potrzeb.
+//Dla wartości 0 argumentu bus zostanie wybrany miernik odpowiedzialny
+//za prąd i napięcie akumulatora a dla 1 prąd i napięcie ogniwa słonecznego.
 void TCA9548A(uint8_t bus)
 {
   Wire.beginTransmission(0x70);
   Wire.write(1 << bus);
   Wire.endTransmission();
 }
+//Inicjalizuje miernik INA219, jeżeli wystąpi błąd, to program zatrzymie się
+//w tej funkcji i zgłosi błąd użytkownikowi.
 void initINA219()
 {
   if (! ina219.begin())
@@ -123,14 +136,17 @@ void initINA219()
       writeOnLCD("ERROR, CAN'T", "INIT INA219");
       while (1) {
         delay(999999);
-      } // Can't use tracker if one of the ina219 is not working.
+      } 
     }
   }
 }
+//Zwraca bierzące natężenie prądu przepływające przez miernik.
 float measureCurrent()
 {
   return ina219.getCurrent_mA();
 }
+//Zwraca całkowite napięcie akumulatora lub ogniwa słonecznego, zależnie od 
+//wcześniej wybranego miernika.
 float measureLoadVoltage()
 {
   float shuntvoltage = 0;
@@ -144,6 +160,7 @@ float measureLoadVoltage()
 
   return loadvoltage;
 }
+//Zwraca średnią arytmetyczną z kilku pomiarów mocy.
 float measurePower()
 {
   float resoult = 0;
@@ -156,6 +173,7 @@ float measurePower()
 
   return  resoult / 5;
 }
+//Funkcja mierząca wszystkie potrzebne wartości, które użytkownik odczytuje //w momencie naciśnięcia przycisku.
 void measureAll()
 {
   TCA9548A(0);
@@ -175,15 +193,19 @@ void measureAll()
 //#################################################################
 //#################### CHARGER SWITCH #############################
 //#################################################################
+//Inicjalizuje pin odpowiedzialny za załączanie lub odłączanie obwodu.
+//Wyłącza domyślnie ładowanie akumulatora.
 void initChargerSwitch()
 {
   pinMode(MOSFET_GATE, OUTPUT);
   chargingOFF();
 }
+//Zamyka obwód ładujący akumulator.
 void chargingON()
 {
   digitalWrite(MOSFET_GATE, LOW);
 }
+//Otwiera obwód ładujący akumulator.
 void chargingOFF()
 {
   digitalWrite(MOSFET_GATE, HIGH);
@@ -191,10 +213,12 @@ void chargingOFF()
 //#################################################################
 //####################     BUTTON    ##############################
 //#################################################################
+//Inicjalizuje odpowiedni pin, który będzie odczytywał zachowanie przycisku.
 void initButton()
 {
   pinMode(BUTTON_PIN, INPUT);
 }
+// Sprawdza czy przycisk został naciśniety i zwraca odpowiednią wartość. //Jeżeli wartość wynosi true, funkcja uruchamia procedurę alert() //potwierdzającą wciśnięcie przycisku.
 bool buttonPressed()
 {
   if (digitalRead(BUTTON_PIN) == LOW)
@@ -211,12 +235,13 @@ bool buttonPressed()
 //#################################################################
 //####################     SERVO     ##############################
 //#################################################################
+//Ustawia serwo relatywnie do stanu podanego w argumencie funkcji.
 void setServoState(int state)
 {
   if (servoState == state)
     return;
 
-  // Servo servo;
+ 
   disableMotor();
   delay(100);
   servo.attach(SERVO_PIN);
@@ -239,7 +264,7 @@ void setServoState(int state)
       servoState++;
     }
   }
-  servo.writeMicroseconds(1500);//Default stop;
+  servo.writeMicroseconds(1500);
   delay(1000);
   servo.detach();
   delay(100);
@@ -248,6 +273,9 @@ void setServoState(int state)
 //#################################################################
 //####################     MOTOR     ##############################
 //#################################################################
+//Inicjalizuje piny podpięte do sterownika. 
+//Domyślnie wyłącza motor w celu ochrony przed przegrzaniem sterownika
+//i oszczędzania energii.
 void initMotor()
 {
   pinMode(EN, OUTPUT);
@@ -255,14 +283,17 @@ void initMotor()
   pinMode(STEP, OUTPUT);
   disableMotor(); // Prevents the a4988 for overheating.
 }
+//Włącza możliwośc sterowania silnikiem.
 void enableMotor()
 {
   digitalWrite(EN, LOW);
 }
+//Wyłącza możliwość sterowania silnikiem.
 void disableMotor()
 {
   digitalWrite(EN, HIGH);
 }
+//Porusza silnikiem w prawo o ilość kroków podanych w argumencie funkcji.
 void moveRight(int stepsCount)
 {
   digitalWrite(DIR, LOW);
@@ -275,6 +306,7 @@ void moveRight(int stepsCount)
     digitalWrite(STEP, HIGH);
   }
 }
+//Porusza silnikiem w lewo o ilość kroków podanych w argumencie funkcji.
 void moveLeft(int stepsCount)
 {
   digitalWrite(DIR, HIGH);
@@ -287,6 +319,7 @@ void moveLeft(int stepsCount)
     digitalWrite(STEP, HIGH);
   }
 }
+//Ustawia odpowiedni stan motoru.
 void setMotorState(int state)
 {
   if (motorState == state)
@@ -311,6 +344,7 @@ void setMotorState(int state)
 //#################################################################
 //#####################   TRACKER   ###############################
 //#################################################################
+//Ustawia panel przy użyciu serwomechanizmu na pozycję w której ilość //produkowanej energii jest najwyższa.
 void trackVertical()
 {
   float servoPowerArray[7];
@@ -338,6 +372,7 @@ void trackVertical()
   writeOnLCD("", "");
   turnBackgroundLight(false);
 }
+//Funkcja wywoływana rekurencyjnie do momentu znalezienia pozycji w której //produkowana energia jest najwyższa. Obraca panelem w prawo.
 void trackSunRight(float lastPower)
 {
   float currentPower;
@@ -346,8 +381,7 @@ void trackSunRight(float lastPower)
   else
     setMotorState(0);
 
-  currentPower =  measurePower();
- // currentPower = roundNumber(currentPower);
+  currentPower = roundNumber(currentPower);
 
   if (lastPower < currentPower)
     trackSunRight(currentPower);
@@ -361,6 +395,7 @@ void trackSunRight(float lastPower)
     trackVertical();
   }
 }
+//Funkcja wywoływana rekurencyjnie do momentu znalezienia pozycji w której //produkowana energia jest najwyższa. Obraca panelem w lewo.
 void trackSunLeft(float lastPower)
 {
   float currentPower;
@@ -369,8 +404,7 @@ void trackSunLeft(float lastPower)
   else
     setMotorState(25);
 
-  currentPower =  measurePower();
- // currentPower = roundNumber(currentPower);
+  currentPower = roundNumber(currentPower);
 
   if (lastPower < currentPower)
     trackSunLeft(currentPower);
@@ -384,6 +418,9 @@ void trackSunLeft(float lastPower)
     trackVertical();
   }
 }
+//Funkcja wywoływana na początku działania urządzenia, jak i w momencie
+//w którym nie powiodło się śledzenie słońca. Zwraca true jeżeli źródło 
+//światła zostało znalezione.
 bool findSun()
 {
   setServoState(1);
@@ -394,7 +431,7 @@ bool findSun()
   int progres = 0;
   float maxPower = 0;
 
-  //Scanning.
+ 
   TCA9548A(0);
 
   for (int i = 0; i < 25; i++)
@@ -416,7 +453,7 @@ bool findSun()
   }
   if (maxPower > minimalPower * 0.1)
   {
-    //Going to best place.
+   
     writeOnLCD("best state:" + String(bestMotorState), "mW:" + String(maxPower));
     delay(2000);
     setMotorState(bestMotorState);
@@ -425,7 +462,7 @@ bool findSun()
 
     trackVertical();
   }
-  if (measurePower() < minimalPower)// Restarting tracker
+  if (measurePower() < minimalPower)
   {
     delay(4000);
 
@@ -441,7 +478,7 @@ bool findSun()
   disableMotor();
   return true;
 }
-
+//Po udanym wcześniejszym znalezieniu słońca, gdy ilość generowanej energii //spada, metoda trackSun rozpoczyna śledzenie słońca.
 void trackSun()
 {
   float leftPower = 0;
@@ -449,14 +486,14 @@ void trackSun()
   float middlePower = 0;
   setServoState(1);
   enableMotor();
-  //Scanning.
+ 
   TCA9548A(0);
   
-  //Checking current voltage.
+  
   middlePower = measurePower();
   middlePower = roundNumber(middlePower);
  
-  //Checking right side.
+  
   if (motorState < 25)
     setMotorState(motorState + 1);
   else
@@ -465,7 +502,7 @@ void trackSun()
   rightPower = measurePower();
   rightPower = roundNumber(rightPower);
 
-  //Checking left side.
+  
 
   if (motorState > 1)
     setMotorState(motorState - 2);
@@ -475,7 +512,7 @@ void trackSun()
   leftPower = measurePower();
   leftPower = roundNumber(leftPower);
 
-  //Middle state.
+
   if (motorState < 25)
     setMotorState(motorState + 1);
   else
@@ -491,7 +528,7 @@ void trackSun()
       return;
     }
   }
-  else //right voltage is higher than left
+  else
   {
     if (middlePower < rightPower)
     {
@@ -504,9 +541,11 @@ void trackSun()
 
 
 }
-void controlCharging()//Charging is ON
+//Sprawdza czy akumulator został naładowany, jeżeli tak
+//to wyłącza ładowanie i czeka na rozładowanie akumulatora.
+void checkBattery()
 {
-  TCA9548A(1);//Battery
+   TCA9548A(1);
   if (measureLoadVoltage() > maxBatteryVoltage)
   {
     chargingOFF();
@@ -525,7 +564,13 @@ void controlCharging()//Charging is ON
   }
   else
     chargingON();
-
+}
+//Główna funkcja mierząca stan naładowania akumulatora. Wykonuje skanowanie
+//obszaru lub śledzenie znalezionego już wcześniej słońca. Usypia również
+//urządzenie jeżeli znalezienie słońca jest nie możliwe.
+void controlCharging()
+{
+  checkBattery();
   if (succedScan)
   {
     TCA9548A(0);
@@ -572,9 +617,9 @@ void showData()
 //#################################################################
 void setup() {
   initLCD();
-  initINA219s();//Measures battery and panel's parameters
-  initMotor();//default enable pin is turned high to prevent overheating
-  initChargerSwitch();//default charging is turned off
+  initINA219s();
+  initMotor();
+  initChargerSwitch();
   writeOnLCD("calibrate panel", "and press button");
 
   while (1)
@@ -582,8 +627,11 @@ void setup() {
     if (buttonPressed())
       break;
   }
+
+  checkBattery();
   chargingON();
   succedScan = findSun();
+  
   writeOnLCD("", "");
   turnBackgroundLight(false);
 
